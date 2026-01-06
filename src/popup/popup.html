@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Multi-Session Containers</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <h1>Sessions</h1>
+      <button id="add-session" class="btn-icon" title="Add new session">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+          <path d="M8 2a.75.75 0 01.75.75v4.5h4.5a.75.75 0 010 1.5h-4.5v4.5a.75.75 0 01-1.5 0v-4.5h-4.5a.75.75 0 010-1.5h4.5v-4.5A.75.75 0 018 2z"/>
+        </svg>
+      </button>
+    </header>
+
+    <div class="current-session">
+      <span class="label">Current tab:</span>
+      <span id="current-session-name" class="session-badge">Loading...</span>
+    </div>
+
+    <div id="sessions-list" class="sessions-list">
+      <!-- Sessions will be populated here -->
+    </div>
+
+    <div class="actions">
+      <button id="clear-cookies" class="btn-secondary">Clear Session Cookies</button>
+    </div>
+  </div>
+
+  <!-- Add/Edit Session Modal -->
+  <div id="modal" class="modal hidden">
+    <div class="modal-content">
+      <h2 id="modal-title">Add Session</h2>
+      <form id="session-form">
+        <div class="form-group">
+          <label for="session-name">Name</label>
+          <input type="text" id="session-name" required placeholder="Session name">
+        </div>
+        <div class="form-group">
+          <label>Color</label>
+          <div class="color-picker">
+            <button type="button" class="color-option" data-color="#e53935" style="background:#e53935"></button>
+            <button type="button" class="color-option" data-color="#f9a825" style="background:#f9a825"></button>
+            <button type="button" class="color-option" data-color="#43a047" style="background:#43a047"></button>
+            <button type="button" class="color-option" data-color="#00a8e8" style="background:#00a8e8"></button>
+            <button type="button" class="color-option" data-color="#7b1fa2" style="background:#7b1fa2"></button>
+            <button type="button" class="color-option" data-color="#ff6d00" style="background:#ff6d00"></button>
+            <button type="button" class="color-option" data-color="#00897b" style="background:#00897b"></button>
+            <button type="button" class="color-option" data-color="#5c6bc0" style="background:#5c6bc0"></button>
+          </div>
+          <input type="hidden" id="session-color" value="#00a8e8">
+        </div>
+        <div class="form-actions">
+          <button type="button" id="cancel-modal" class="btn-secondary">Cancel</button>
+          <button type="submit" class="btn-primary">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
