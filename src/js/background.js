@@ -78,21 +78,40 @@ async function createRulesForTab(tabId, sessionId, url) {
 
 // Apply rules for a tab
 async function applyRulesForTab(tabId, sessionId, url) {
-  // Get existing rules for this tab
-  const tabInfo = tabCache.get(tabId) || { sessionId: 'default', ruleIds: [], domains: new Set() };
+  // Get existing rules from STORAGE (not just cache) - survives service worker restart
+  const storedTabInfo = await Storage.getTabInfo(tabId);
+  const cachedTabInfo = tabCache.get(tabId);
 
-  // Remove old rules
-  if (tabInfo.ruleIds.length > 0) {
+  // Combine rule IDs from both sources to ensure we clean up everything
+  const ruleIdsToRemove = new Set([
+    ...(storedTabInfo.ruleIds || []),
+    ...(cachedTabInfo?.ruleIds || [])
+  ]);
+
+  // Also query all existing session rules to find any orphaned rules for this tab
+  try {
+    const existingRules = await chrome.declarativeNetRequest.getSessionRules();
+    for (const rule of existingRules) {
+      if (rule.condition?.tabIds?.includes(tabId)) {
+        ruleIdsToRemove.add(rule.id);
+      }
+    }
+  } catch (e) {
+    console.error('Error getting existing rules:', e);
+  }
+
+  // Remove all old rules for this tab
+  if (ruleIdsToRemove.size > 0) {
     try {
       await chrome.declarativeNetRequest.updateSessionRules({
-        removeRuleIds: tabInfo.ruleIds
+        removeRuleIds: Array.from(ruleIdsToRemove)
       });
     } catch (e) {
       console.error('Error removing old rules:', e);
     }
   }
 
-  // If default session, no rules needed
+  // If default session, no rules needed - just clean up
   if (sessionId === 'default') {
     tabCache.set(tabId, { sessionId: 'default', ruleIds: [], domains: new Set() });
     await Storage.setTabInfo(tabId, sessionId, []);
@@ -270,13 +289,32 @@ chrome.webNavigation.onBeforeNavigate.addListener(async (details) => {
 
 // Handle tab removal
 chrome.tabs.onRemoved.addListener(async (tabId) => {
-  const tabInfo = tabCache.get(tabId);
+  // Get rule IDs from both cache and storage
+  const storedTabInfo = await Storage.getTabInfo(tabId);
+  const cachedTabInfo = tabCache.get(tabId);
 
-  // Remove rules
-  if (tabInfo && tabInfo.ruleIds.length > 0) {
+  const ruleIdsToRemove = new Set([
+    ...(storedTabInfo.ruleIds || []),
+    ...(cachedTabInfo?.ruleIds || [])
+  ]);
+
+  // Also find any orphaned rules for this tab
+  try {
+    const existingRules = await chrome.declarativeNetRequest.getSessionRules();
+    for (const rule of existingRules) {
+      if (rule.condition?.tabIds?.includes(tabId)) {
+        ruleIdsToRemove.add(rule.id);
+      }
+    }
+  } catch (e) {
+    // Ignore errors
+  }
+
+  // Remove all rules for this tab
+  if (ruleIdsToRemove.size > 0) {
     try {
       await chrome.declarativeNetRequest.updateSessionRules({
-        removeRuleIds: tabInfo.ruleIds
+        removeRuleIds: Array.from(ruleIdsToRemove)
       });
     } catch (e) {
       // Ignore errors
@@ -471,12 +509,64 @@ async function handleMessage(message, sender) {
 // INITIALIZATION
 // ============================================================================
 
+// Clean up orphaned rules (rules for tabs that no longer exist)
+async function cleanupOrphanedRules() {
+  try {
+    const existingRules = await chrome.declarativeNetRequest.getSessionRules();
+    const openTabs = await chrome.tabs.query({});
+    const openTabIds = new Set(openTabs.map(t => t.id));
+
+    const orphanedRuleIds = [];
+    for (const rule of existingRules) {
+      if (rule.condition?.tabIds) {
+        // Check if all tabIds in this rule still exist
+        const allTabsClosed = rule.condition.tabIds.every(id => !openTabIds.has(id));
+        if (allTabsClosed) {
+          orphanedRuleIds.push(rule.id);
+        }
+      }
+    }
+
+    if (orphanedRuleIds.length > 0) {
+      await chrome.declarativeNetRequest.updateSessionRules({
+        removeRuleIds: orphanedRuleIds
+      });
+      console.log(`Cleaned up ${orphanedRuleIds.length} orphaned rules`);
+    }
+  } catch (e) {
+    console.error('Error cleaning up orphaned rules:', e);
+  }
+}
+
 // Initialize existing tabs on startup
 chrome.tabs.query({}).then(async (tabs) => {
+  // First, clean up any orphaned rules
+  await cleanupOrphanedRules();
+
+  // Then restore tab sessions from storage
   for (const tab of tabs) {
-    const sessionId = await Storage.getTabSession(tab.id);
-    tabCache.set(tab.id, { sessionId, ruleIds: [], domains: new Set() });
+    const tabInfo = await Storage.getTabInfo(tab.id);
+    const sessionId = tabInfo.sessionId || 'default';
+    const ruleIds = tabInfo.ruleIds || [];
+
+    tabCache.set(tab.id, { sessionId, ruleIds, domains: new Set() });
     updateBadge(tab.id, sessionId);
+  }
+
+  // Clean up storage for tabs that no longer exist
+  const data = await Storage.get('tabSessions');
+  if (data.tabSessions) {
+    const openTabIds = new Set(tabs.map(t => t.id.toString()));
+    let changed = false;
+    for (const tabId in data.tabSessions) {
+      if (!openTabIds.has(tabId)) {
+        delete data.tabSessions[tabId];
+        changed = true;
+      }
+    }
+    if (changed) {
+      await Storage.set({ tabSessions: data.tabSessions });
+    }
   }
 });
 
