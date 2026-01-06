@@ -298,6 +298,16 @@ async function updateBadge(tabId, sessionId) {
       await chrome.action.setBadgeText({ text: ' ', tabId });
       await chrome.action.setBadgeBackgroundColor({ color: session.color, tabId });
       await chrome.action.setTitle({ title: `Session: ${session.name}`, tabId });
+
+      // Notify content script to update indicator
+      try {
+        await chrome.tabs.sendMessage(tabId, {
+          action: 'updateSessionIndicator',
+          session: session
+        });
+      } catch (e) {
+        // Content script might not be loaded yet
+      }
     }
   } catch (e) {
     // Tab might not exist
@@ -431,6 +441,17 @@ async function handleMessage(message, sender) {
     case 'getCurrentTab': {
       const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
       return tabs[0];
+    }
+
+    case 'getTabSessionInfo': {
+      // Get session info for content script indicator
+      const senderTabId = sender.tab?.id;
+      if (!senderTabId) return { session: null };
+
+      const tabSessionInfo = tabCache.get(senderTabId);
+      const sessionId = tabSessionInfo?.sessionId || await Storage.getTabSession(senderTabId);
+      const session = await Storage.getSession(sessionId);
+      return { session };
     }
 
     case 'openInSession': {
